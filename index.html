@@ -124,6 +124,18 @@
   }
   .wave i.on{background:var(--cyan)}
 
+  /* Rango de páginas */
+  .range{display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap;margin-bottom:16px}
+  .range label{display:flex;flex-direction:column;gap:6px;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+  .range input[type=number]{
+    width:90px;background:var(--bg);color:var(--text);border:1px solid var(--border);
+    border-radius:9px;padding:9px 11px;font-family:'Space Grotesk',sans-serif;font-size:15px;
+  }
+  .range input[type=number]:focus{outline:none;border-color:var(--amber-dim)}
+  .btn.mini{width:auto;margin-top:0;padding:9px 16px;font-size:13px}
+  .warn{color:var(--amber);font-size:13px;margin-top:-4px;margin-bottom:12px}
+  .warn.hidden{display:none}
+
   audio{width:100%;margin-top:18px}
   .hidden{display:none}
   a.download{display:inline-block;text-decoration:none;width:100%}
@@ -157,9 +169,16 @@
       <div><span class="k">Archivo</span><span class="v" id="mName" style="font-size:15px;max-width:30ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">—</span></div>
       <div><span class="k">Páginas</span><span class="v" id="mPages">—</span></div>
       <div><span class="k">Caracteres</span><span class="v" id="mChars">—</span></div>
+      <div><span class="k">Fragmentos ≈</span><span class="v" id="mFrags">—</span></div>
     </div>
+    <div class="range" id="rangeRow">
+      <label>Desde pág.<input type="number" id="pFrom" min="1" value="1"></label>
+      <label>Hasta pág.<input type="number" id="pTo" min="1" value="1"></label>
+      <button class="btn secondary mini" id="applyRange">Cargar páginas</button>
+    </div>
+    <p class="warn hidden" id="warn"></p>
     <textarea id="text" placeholder="Acá aparece el texto. Editalo antes de generar si salió sucio."></textarea>
-    <p class="hint">Revisá y limpiá lo que haga falta. Lo que quede acá es exactamente lo que se va a leer.</p>
+    <p class="hint">Revisá y limpiá lo que haga falta. Lo que quede acá es exactamente lo que se va a leer. Cada fragmento son unos segundos: arriba de ~120 conviene acotar el rango.</p>
   </div>
 
   <!-- Paso 3: voz -->
@@ -222,10 +241,13 @@ const drop=$("drop"), fileInput=$("file"),
       textCard=$("textCard"), voiceCard=$("voiceCard"),
       textEl=$("text"), genBtn=$("gen"), statusEl=$("status"),
       waveEl=$("wave"), player=$("player"), audioEl=$("audio"), dlEl=$("dl"),
-      speedEl=$("speed"), speedVal=$("speedVal");
+      speedEl=$("speed"), speedVal=$("speedVal"),
+      pFrom=$("pFrom"), pTo=$("pTo"), applyRangeBtn=$("applyRange"), warnEl=$("warn");
 
 let tts = null;          // instancia del modelo (carga perezosa)
 let ttsLoading = null;   // promesa de carga en curso
+let device = null;       // "webgpu" | "wasm"
+let pageTexts = [];      // texto por página, para poder cortar por rango
 
 // --- waveform decorativa de progreso ---
 const BARS = 40;
@@ -256,16 +278,17 @@ async function handleFile(file){
   try{
     const buf = await file.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({data:buf}).promise;
-    let out="";
+    pageTexts = [];
     for(let p=1;p<=pdf.numPages;p++){
       const page=await pdf.getPage(p);
       const content=await page.getTextContent();
-      out += content.items.map(it=>it.str).join(" ").replace(/\s+/g," ").trim()+"\n\n";
+      pageTexts.push(content.items.map(it=>it.str).join(" ").replace(/\s+/g," ").trim());
     }
-    textEl.value = out.trim();
     $("mName").textContent = file.name;
     $("mPages").textContent = pdf.numPages;
-    updateChars();
+    pFrom.value = 1; pFrom.max = pdf.numPages;
+    pTo.value = pdf.numPages; pTo.max = pdf.numPages;
+    applyRange();
     textCard.classList.remove("hidden");
     voiceCard.classList.remove("hidden");
     genBtn.disabled = false;
@@ -277,20 +300,43 @@ async function handleFile(file){
   }
 }
 
+// Carga el texto del rango de páginas elegido en el textarea
+function applyRange(){
+  let from = Math.max(1, parseInt(pFrom.value)||1);
+  let to   = Math.min(pageTexts.length, parseInt(pTo.value)||pageTexts.length);
+  if(to < from) to = from;
+  pFrom.value = from; pTo.value = to;
+  textEl.value = pageTexts.slice(from-1, to).join("\n\n").trim();
+  updateChars();
+}
+applyRangeBtn.addEventListener("click",applyRange);
+
 textEl.addEventListener("input",updateChars);
-function updateChars(){ $("mChars").textContent = textEl.value.length.toLocaleString("es-AR"); }
+function updateChars(){
+  const len = textEl.value.length;
+  $("mChars").textContent = len.toLocaleString("es-AR");
+  const frags = chunkText(textEl.value).length;
+  $("mFrags").textContent = frags;
+  if(frags > 120){
+    warnEl.textContent = `${frags} fragmentos es mucho para el navegador (varios minutos, y más riesgo de que se corte). Probá un rango más chico.`;
+    warnEl.classList.remove("hidden");
+  } else {
+    warnEl.classList.add("hidden");
+  }
+}
 
 speedEl.addEventListener("input",()=>{ speedVal.textContent = Number(speedEl.value).toFixed(1)+"×"; });
 
 // --- carga del modelo (perezosa) ---
-async function loadModel(){
-  if(tts) return tts;
+async function loadModel(forceWasm=false){
+  if(tts && !forceWasm) return tts;
+  if(forceWasm){ tts=null; ttsLoading=null; }
   if(ttsLoading) return ttsLoading;
-  const useGPU = !!navigator.gpu;
-  setStatus(useGPU ? "Cargando modelo de voz (WebGPU)…" : "Cargando modelo de voz (WASM, puede tardar)…");
+  device = (!forceWasm && navigator.gpu) ? "webgpu" : "wasm";
+  setStatus(device==="webgpu" ? "Cargando modelo de voz (WebGPU)…" : "Cargando modelo de voz (WASM, puede tardar)…");
   ttsLoading = KokoroTTS.from_pretrained("onnx-community/Kokoro-82M-v1.0-ONNX",{
-    dtype: useGPU ? "fp32" : "q8",
-    device: useGPU ? "webgpu" : "wasm",
+    dtype: device==="webgpu" ? "fp32" : "q8",
+    device,
   }).then(m=>{ tts=m; return m; });
   return ttsLoading;
 }
@@ -342,11 +388,26 @@ genBtn.addEventListener("click",async()=>{
     const speed=Number(speedEl.value);
     const chunks=chunkText(text);
     const audioParts=[]; let sr=24000;
-    for(let i=0;i<chunks.length;i++){
-      setStatus(`Generando… fragmento ${i+1} de ${chunks.length}`);
+    let i=0;
+    while(i<chunks.length){
+      setStatus(`Generando… fragmento ${i+1} de ${chunks.length}${device==="wasm"?" (modo lento)":""}`);
       setWave((i+1)/chunks.length);
-      const res=await tts.generate(chunks[i],{voice,speed});
-      audioParts.push(res.audio); sr=res.sampling_rate||sr;
+      try{
+        const res=await tts.generate(chunks[i],{voice,speed});
+        audioParts.push(res.audio); sr=res.sampling_rate||sr;
+        i++;
+        // respiro para el event loop / GPU entre fragmentos
+        await new Promise(r=>setTimeout(r,0));
+      }catch(genErr){
+        console.error(genErr);
+        // Si WebGPU se cayó a mitad, reintento el MISMO fragmento en WASM y sigo
+        if(device==="webgpu"){
+          setStatus("WebGPU se cortó. Recargo en modo lento (WASM) y sigo donde quedé…");
+          await loadModel(true);
+          continue; // reintenta el mismo i
+        }
+        throw genErr; // en WASM no hay red de seguridad: que reviente y se reporte
+      }
     }
     setStatus("Armando el archivo…");
     const full=concatFloat32(audioParts);
