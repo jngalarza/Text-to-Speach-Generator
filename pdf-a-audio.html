@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lectura · PDF a audio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+  :root{
+    --bg:#0D1014;
+    --surface:#161A20;
+    --surface-2:#1C212A;
+    --border:#262C36;
+    --text:#E8EBF0;
+    --muted:#8A929E;
+    --amber:#FF9F45;
+    --amber-dim:#a8682c;
+    --cyan:#5BD6C0;
+    --radius:14px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:'Inter',system-ui,sans-serif;
+    line-height:1.55;
+    min-height:100vh;
+    padding:40px 20px 80px;
+  }
+  .wrap{max-width:760px;margin:0 auto}
+
+  /* Header */
+  header{margin-bottom:36px}
+  .eyebrow{
+    font-family:'Space Grotesk',sans-serif;
+    font-size:12px;letter-spacing:.22em;text-transform:uppercase;
+    color:var(--amber);margin-bottom:10px;
+  }
+  h1{
+    font-family:'Space Grotesk',sans-serif;
+    font-size:38px;font-weight:700;letter-spacing:-.02em;line-height:1.05;
+  }
+  .sub{color:var(--muted);margin-top:10px;font-size:15px;max-width:54ch}
+
+  /* Cards */
+  .card{
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:var(--radius);
+    padding:22px;
+    margin-top:18px;
+  }
+  .card-label{
+    font-family:'Space Grotesk',sans-serif;
+    font-size:11px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--muted);margin-bottom:14px;
+  }
+
+  /* Dropzone */
+  .drop{
+    border:1.5px dashed var(--border);
+    border-radius:var(--radius);
+    padding:46px 24px;text-align:center;cursor:pointer;
+    transition:border-color .18s ease, background .18s ease;
+  }
+  .drop:hover,.drop.over{border-color:var(--amber);background:var(--surface-2)}
+  .drop-icon{font-size:30px;margin-bottom:10px;opacity:.8}
+  .drop strong{font-family:'Space Grotesk',sans-serif;font-weight:600}
+  .drop span{color:var(--muted);font-size:14px;display:block;margin-top:4px}
+  input[type=file]{display:none}
+
+  /* Meta row */
+  .meta{display:flex;gap:26px;flex-wrap:wrap;margin-bottom:16px}
+  .meta div{display:flex;flex-direction:column}
+  .meta .k{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+  .meta .v{font-family:'Space Grotesk',sans-serif;font-size:22px;font-weight:600;margin-top:2px}
+
+  textarea{
+    width:100%;min-height:180px;resize:vertical;
+    background:var(--bg);color:var(--text);
+    border:1px solid var(--border);border-radius:10px;
+    padding:14px;font-family:'Inter',sans-serif;font-size:14px;line-height:1.6;
+  }
+  textarea:focus{outline:none;border-color:var(--amber-dim)}
+  .hint{color:var(--muted);font-size:13px;margin-top:10px}
+
+  /* Controls */
+  .controls{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  @media(max-width:560px){.controls{grid-template-columns:1fr}}
+  label.field{display:block}
+  .field .k{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-bottom:8px;display:block}
+  select,input[type=range]{width:100%}
+  select{
+    background:var(--bg);color:var(--text);border:1px solid var(--border);
+    border-radius:10px;padding:11px 12px;font-family:'Inter',sans-serif;font-size:14px;
+  }
+  select:focus{outline:none;border-color:var(--amber-dim)}
+  optgroup{color:var(--muted)}
+  .speed-row{display:flex;align-items:center;gap:12px}
+  .speed-val{font-family:'Space Grotesk',sans-serif;min-width:42px;text-align:right;color:var(--amber)}
+  input[type=range]{accent-color:var(--amber)}
+
+  /* Button */
+  .btn{
+    font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:15px;
+    background:var(--amber);color:#1a1205;border:none;border-radius:11px;
+    padding:14px 22px;cursor:pointer;transition:filter .15s ease, opacity .15s ease;
+    width:100%;margin-top:20px;
+  }
+  .btn:hover:not(:disabled){filter:brightness(1.08)}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+  .btn.secondary{background:transparent;color:var(--amber);border:1px solid var(--amber-dim);margin-top:0}
+
+  /* Status + waveform */
+  .status{margin-top:16px;font-size:14px;color:var(--muted);min-height:20px}
+  .status.err{color:#ff7a6b}
+  .wave{display:flex;align-items:flex-end;gap:3px;height:46px;margin-top:18px}
+  .wave i{
+    flex:1;background:var(--surface-2);border-radius:2px;height:20%;
+    transition:height .25s ease, background .25s ease;
+  }
+  .wave i.on{background:var(--cyan)}
+
+  audio{width:100%;margin-top:18px}
+  .hidden{display:none}
+  a.download{display:inline-block;text-decoration:none;width:100%}
+  .foot{color:var(--muted);font-size:12.5px;margin-top:34px;line-height:1.7}
+  .foot code{background:var(--surface);padding:2px 6px;border-radius:5px;font-size:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Texto a voz · local</div>
+    <h1>Lectura</h1>
+    <p class="sub">Cargá un PDF y lo convierte en un archivo de audio. Todo corre en tu navegador con Kokoro: el documento nunca se sube a ningún servidor.</p>
+  </header>
+
+  <!-- Paso 1: cargar -->
+  <div class="card">
+    <div class="card-label">1 · Documento</div>
+    <div class="drop" id="drop">
+      <div class="drop-icon">↥</div>
+      <strong>Soltá un PDF acá o hacé clic</strong>
+      <span>Funciona mejor con texto corrido. Decks y tablas salen desordenados.</span>
+    </div>
+    <input type="file" id="file" accept="application/pdf">
+  </div>
+
+  <!-- Paso 2: revisar texto -->
+  <div class="card hidden" id="textCard">
+    <div class="card-label">2 · Texto extraído</div>
+    <div class="meta">
+      <div><span class="k">Archivo</span><span class="v" id="mName" style="font-size:15px;max-width:30ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">—</span></div>
+      <div><span class="k">Páginas</span><span class="v" id="mPages">—</span></div>
+      <div><span class="k">Caracteres</span><span class="v" id="mChars">—</span></div>
+    </div>
+    <textarea id="text" placeholder="Acá aparece el texto. Editalo antes de generar si salió sucio."></textarea>
+    <p class="hint">Revisá y limpiá lo que haga falta. Lo que quede acá es exactamente lo que se va a leer.</p>
+  </div>
+
+  <!-- Paso 3: voz -->
+  <div class="card hidden" id="voiceCard">
+    <div class="card-label">3 · Voz</div>
+    <div class="controls">
+      <label class="field">
+        <span class="k">Voz e idioma</span>
+        <select id="voice">
+          <optgroup label="Español">
+            <option value="ef_dora">Dora — femenina</option>
+            <option value="em_alex">Alex — masculina</option>
+            <option value="em_santa">Santa — masculina</option>
+          </optgroup>
+          <optgroup label="Inglés (US)">
+            <option value="af_heart" selected>Heart — femenina</option>
+            <option value="af_bella">Bella — femenina</option>
+            <option value="am_michael">Michael — masculina</option>
+            <option value="am_fenrir">Fenrir — masculina</option>
+          </optgroup>
+          <optgroup label="Inglés (UK)">
+            <option value="bf_emma">Emma — femenina</option>
+            <option value="bm_george">George — masculina</option>
+          </optgroup>
+        </select>
+      </label>
+      <label class="field">
+        <span class="k">Velocidad</span>
+        <div class="speed-row">
+          <input type="range" id="speed" min="0.7" max="1.4" step="0.05" value="1">
+          <span class="speed-val" id="speedVal">1.0×</span>
+        </div>
+      </label>
+    </div>
+    <button class="btn" id="gen" disabled>Generar audio</button>
+    <div class="status" id="status"></div>
+    <div class="wave" id="wave"></div>
+    <div id="player" class="hidden">
+      <audio id="audio" controls></audio>
+      <a id="dl" class="download" download="lectura.wav"><button class="btn secondary" style="margin-top:14px">Descargar WAV</button></a>
+    </div>
+  </div>
+
+  <p class="foot">
+    La primera vez descarga el modelo de voz (~80&nbsp;MB) y puede tardar; después queda en caché.
+    El español de Kokoro es correcto pero menos natural que el inglés.
+    Tiene que correr servido por HTTP (subilo a Netlify/Vercel, o local con <code>python&nbsp;-m&nbsp;http.server</code>); abrirlo con doble clic <code>file://</code> no carga el modelo.
+  </p>
+</div>
+
+<script type="module">
+import { KokoroTTS } from "https://esm.sh/kokoro-js@1.2.1";
+
+// pdf.js worker
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+const $ = id => document.getElementById(id);
+const drop=$("drop"), fileInput=$("file"),
+      textCard=$("textCard"), voiceCard=$("voiceCard"),
+      textEl=$("text"), genBtn=$("gen"), statusEl=$("status"),
+      waveEl=$("wave"), player=$("player"), audioEl=$("audio"), dlEl=$("dl"),
+      speedEl=$("speed"), speedVal=$("speedVal");
+
+let tts = null;          // instancia del modelo (carga perezosa)
+let ttsLoading = null;   // promesa de carga en curso
+
+// --- waveform decorativa de progreso ---
+const BARS = 40;
+for(let i=0;i<BARS;i++){ const b=document.createElement("i"); waveEl.appendChild(b); }
+const bars = [...waveEl.children];
+function setWave(p){ // p = 0..1
+  const active = Math.round(p*BARS);
+  bars.forEach((b,i)=>{
+    b.classList.toggle("on", i<active);
+    b.style.height = (i<active ? 28+Math.random()*60 : 18) + "%";
+  });
+}
+function resetWave(){ bars.forEach(b=>{b.classList.remove("on");b.style.height="20%";}); }
+
+// --- carga de PDF ---
+drop.addEventListener("click",()=>fileInput.click());
+drop.addEventListener("dragover",e=>{e.preventDefault();drop.classList.add("over");});
+drop.addEventListener("dragleave",()=>drop.classList.remove("over"));
+drop.addEventListener("drop",e=>{
+  e.preventDefault();drop.classList.remove("over");
+  if(e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener("change",e=>{ if(e.target.files[0]) handleFile(e.target.files[0]); });
+
+async function handleFile(file){
+  if(file.type!=="application/pdf"){ setStatus("Eso no es un PDF.",true); return; }
+  setStatus("Leyendo el PDF…");
+  try{
+    const buf = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({data:buf}).promise;
+    let out="";
+    for(let p=1;p<=pdf.numPages;p++){
+      const page=await pdf.getPage(p);
+      const content=await page.getTextContent();
+      out += content.items.map(it=>it.str).join(" ").replace(/\s+/g," ").trim()+"\n\n";
+    }
+    textEl.value = out.trim();
+    $("mName").textContent = file.name;
+    $("mPages").textContent = pdf.numPages;
+    updateChars();
+    textCard.classList.remove("hidden");
+    voiceCard.classList.remove("hidden");
+    genBtn.disabled = false;
+    setStatus("");
+    textCard.scrollIntoView({behavior:"smooth",block:"start"});
+  }catch(err){
+    console.error(err);
+    setStatus("No pude leer el PDF. ¿Está escaneado (sin texto)? Eso necesitaría OCR.",true);
+  }
+}
+
+textEl.addEventListener("input",updateChars);
+function updateChars(){ $("mChars").textContent = textEl.value.length.toLocaleString("es-AR"); }
+
+speedEl.addEventListener("input",()=>{ speedVal.textContent = Number(speedEl.value).toFixed(1)+"×"; });
+
+// --- carga del modelo (perezosa) ---
+async function loadModel(){
+  if(tts) return tts;
+  if(ttsLoading) return ttsLoading;
+  const useGPU = !!navigator.gpu;
+  setStatus(useGPU ? "Cargando modelo de voz (WebGPU)…" : "Cargando modelo de voz (WASM, puede tardar)…");
+  ttsLoading = KokoroTTS.from_pretrained("onnx-community/Kokoro-82M-v1.0-ONNX",{
+    dtype: useGPU ? "fp32" : "q8",
+    device: useGPU ? "webgpu" : "wasm",
+  }).then(m=>{ tts=m; return m; });
+  return ttsLoading;
+}
+
+// --- partir texto en trozos por oración ---
+function chunkText(text,maxLen=480){
+  const sentences = text.replace(/\s+/g," ").match(/[^.!?\n]+[.!?]*/g) || [text];
+  const chunks=[]; let cur="";
+  for(const s of sentences){
+    if((cur+s).length>maxLen && cur){ chunks.push(cur.trim()); cur=s; }
+    else cur+=s+" ";
+  }
+  if(cur.trim()) chunks.push(cur.trim());
+  return chunks.filter(c=>c.length);
+}
+
+function concatFloat32(arrays){
+  const total=arrays.reduce((a,b)=>a+b.length,0);
+  const out=new Float32Array(total); let off=0;
+  for(const a of arrays){ out.set(a,off); off+=a.length; }
+  return out;
+}
+
+function encodeWAV(samples,sampleRate){
+  const buffer=new ArrayBuffer(44+samples.length*2);
+  const view=new DataView(buffer);
+  const w=(o,s)=>{ for(let i=0;i<s.length;i++) view.setUint8(o+i,s.charCodeAt(i)); };
+  w(0,"RIFF"); view.setUint32(4,36+samples.length*2,true); w(8,"WAVE");
+  w(12,"fmt "); view.setUint32(16,16,true); view.setUint16(20,1,true);
+  view.setUint16(22,1,true); view.setUint32(24,sampleRate,true);
+  view.setUint32(28,sampleRate*2,true); view.setUint16(32,2,true); view.setUint16(34,16,true);
+  w(36,"data"); view.setUint32(40,samples.length*2,true);
+  let off=44;
+  for(let i=0;i<samples.length;i++){
+    const s=Math.max(-1,Math.min(1,samples[i]));
+    view.setInt16(off, s<0 ? s*0x8000 : s*0x7FFF, true); off+=2;
+  }
+  return new Blob([view],{type:"audio/wav"});
+}
+
+// --- generar ---
+genBtn.addEventListener("click",async()=>{
+  const text=textEl.value.trim();
+  if(!text){ setStatus("No hay texto para leer.",true); return; }
+  genBtn.disabled=true; player.classList.add("hidden"); resetWave();
+  try{
+    await loadModel();
+    const voice=$("voice").value;
+    const speed=Number(speedEl.value);
+    const chunks=chunkText(text);
+    const audioParts=[]; let sr=24000;
+    for(let i=0;i<chunks.length;i++){
+      setStatus(`Generando… fragmento ${i+1} de ${chunks.length}`);
+      setWave((i+1)/chunks.length);
+      const res=await tts.generate(chunks[i],{voice,speed});
+      audioParts.push(res.audio); sr=res.sampling_rate||sr;
+    }
+    setStatus("Armando el archivo…");
+    const full=concatFloat32(audioParts);
+    const blob=encodeWAV(full,sr);
+    const url=URL.createObjectURL(blob);
+    audioEl.src=url; dlEl.href=url;
+    const base=($("mName").textContent||"lectura").replace(/\.pdf$/i,"");
+    dlEl.download=base+".wav";
+    player.classList.remove("hidden");
+    setStatus(`Listo · ${(full.length/sr/60).toFixed(1)} min de audio`);
+    setWave(1);
+  }catch(err){
+    console.error(err);
+    setStatus("Algo falló generando el audio. Revisá la consola (F12) para el detalle.",true);
+  }finally{
+    genBtn.disabled=false;
+  }
+});
+
+function setStatus(msg,isErr=false){
+  statusEl.textContent=msg;
+  statusEl.classList.toggle("err",isErr);
+}
+</script>
+</body>
+</html>
